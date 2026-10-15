@@ -4,11 +4,14 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gsta
 
 // 1. Paste your Firebase web app config here (Firebase Console > Project settings).
 const firebaseConfig = {
-  apiKey: "PASTE_API_KEY",
-  authDomain: "PASTE_PROJECT_ID.firebaseapp.com",
-  databaseURL: "https://PASTE_DATABASE_NAME-default-rtdb.firebaseio.com",
-  projectId: "PASTE_PROJECT_ID",
-  appId: "PASTE_APP_ID"
+  apiKey: "AIzaSyDghAyh8h-bacUaffE4gAq4pMYkwXewz9I",
+  authDomain: "mafia-34c10.firebaseapp.com",
+  databaseURL: "https://mafia-34c10-default-rtdb.europe-west1.firebasedatabase.app/",
+  projectId: "mafia-34c10",
+  storageBucket: "mafia-34c10.firebasestorage.app",
+  messagingSenderId: "461103064592",
+  appId: "1:461103064592:web:39ce01a6e508ad5c588c95",
+  measurementId: "G-8WVC7M72Y8"
 };
 
 const $ = id => document.getElementById(id);
