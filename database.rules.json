@@ -1,0 +1,40 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$room": {
+        ".read": "auth != null",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid) || (data.exists() && data.child('hostUid').val() === auth.uid))",
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($room).child('phase').val() === 'lobby'",
+            ".read": "auth != null"
+          }
+        },
+        "votes": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms').child($room).child('phase').val() === 'voting'",
+            ".read": "auth != null"
+          }
+        }
+      }
+    },
+    "privateRoles": {
+      "$room": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && root.child('rooms').child($room).child('hostUid').val() === auth.uid"
+        }
+      }
+    },
+    "gameSecrets": {
+      "$room": {
+        "mafiaUid": {
+          ".read": "auth != null && (root.child('rooms').child($room).child('hostUid').val() === auth.uid || root.child('rooms').child($room).child('phase').val() === 'results')",
+          ".write": "auth != null && root.child('rooms').child($room).child('hostUid').val() === auth.uid"
+        }
+      }
+    }
+  }
+}
