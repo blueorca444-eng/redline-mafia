@@ -73,8 +73,8 @@ async function enterRoom(e){
    state.roomCode=c;const snap=await get(roomRef());
    if(!snap.exists())throw new Error("Room not found. Check the code and try again.");
    const room=snap.val();if(room.phase!=="lobby")throw new Error("This game has already started.");
-   if(Object.keys(room.players||{}).length>=12)throw new Error("This room is full.");
-   await set(roomRef(`players/${state.user.uid}`),{uid:state.user.uid,name,joinedAt:Date.now()});
+if(Object.keys(room.players||{}).length>=6)throw new Error("This room is full (max 6 players).");
+    await set(roomRef(`players/${state.user.uid}`),{uid:state.user.uid,name,joinedAt:Date.now()});
   }
   listenRoom();showScreen("lobby-screen");
  }catch(ex){err("entry-error",ex.message||"Could not enter the room.");state.roomCode=null;}
