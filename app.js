@@ -6,7 +6,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gsta
 const firebaseConfig = {
   apiKey: "AIzaSyDghAyh8h-bacUaffE4gAq4pMYkwXewz9I",
   authDomain: "mafia-34c10.firebaseapp.com",
-  databaseURL: "https://mafia-34c10-default-rtdb.europe-west1.firebasedatabase.app/",
+  databaseURL: "https://mafia-34c10-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "mafia-34c10",
   storageBucket: "mafia-34c10.firebasestorage.app",
   messagingSenderId: "461103064592",
