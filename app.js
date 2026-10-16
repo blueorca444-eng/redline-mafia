@@ -18,13 +18,14 @@ const COLORS = ["#ff4d5e","#4d7cff","#3fd17f","#ffd23f","#ff8fd0","#ff9a3d","#b1
 const BOT_NAMES = ["Bleep","Bloop","Zorp","Pip","Mox","Juno"];
 const ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const $ = id => document.getElementById(id) || (console.warn("Missing element #" + id), document.createElement("div"));
-const screens = ["home-screen","entry-screen","lobby-screen","role-screen","vote-screen","results-screen"];
-const state = { user:null, roomCode:null, room:null, mode:"create", selectedVote:null, roleVisible:true, unsub:[], busy:false, shown:null, phaseKey:null, myRole:null, lastMafiaUid:null };
+const screens = ["home-screen","entry-screen","lobby-screen","role-screen","discussion-screen","vote-screen","results-screen"];
+const state = { user:null, roomCode:null, room:null, mode:"create", selectedVote:null, roleVisible:true, unsub:[], busy:false, shown:null, phaseKey:null, myRole:null, lastMafiaUid:null, offset:0 };
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const auth = getAuth(app);
+onValue(ref(db, ".info/serverTimeOffset"), snap => { state.offset = snap.val() || 0; });
 
-const crew = c => `<svg class="crew" viewBox="0 0 40 44" aria-hidden="true"><rect class="pack" x="2" y="14" width="9" height="17" rx="4" fill="${c}"/><rect x="7" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="22" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="7" y="2" width="26" height="34" rx="13" fill="${c}"/><rect x="17" y="9" width="19" height="12" rx="6" fill="#d8f6ff" stroke="#10102a" stroke-width="2"/></svg>`;
+const crew = (c, v = "#d8f6ff") => `<svg class="crew" viewBox="0 -4 40 48" aria-hidden="true"><path class="pack" d="M9 35C3 36 1 29 4 24" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/><rect x="7" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="22" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="7" y="2" width="26" height="34" rx="13" fill="${c}"/><path d="M8 11L9-3L19 4Z M32 11L31-3L21 4Z" fill="${c}"/><path d="M10.5 7L10.7 0.5L15.5 4.2Z M29.5 7L29.3 0.5L24.5 4.2Z" fill="#ffb3c7"/><rect x="17" y="9" width="19" height="12" rx="6" fill="${v}" stroke="#10102a" stroke-width="2"/><ellipse cx="29" cy="25" rx="2" ry="1.4" fill="#ff8fb0"/><path d="M31 26L38 24M31 27.5L38 29" stroke="#10102a" stroke-width="1" stroke-linecap="round"/></svg>`;
 const colorOf = p => COLORS[(Number.isInteger(p.c) ? p.c : 0) % COLORS.length];
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const safeName = s => String(s || "").trim().replace(/[<>]/g, "").slice(0, 18);
@@ -79,6 +80,7 @@ function route() {
   renderLobby();
   if (ph === "lobby") showScreen("lobby-screen");
   else if (ph === "role") loadRole();
+  else if (ph === "discussion") { renderDiscussion(); startTick(); }
   else if (ph === "voting") renderVote();
   else if (ph === "results") renderResults();
 }
@@ -152,7 +154,7 @@ async function startGame() {
     ps.forEach(p => writes[`privateRoles/${state.roomCode}/${p.uid}`] = { role: p.uid === mafia ? "mafia" : "villager", round });
     await update(ref(db), writes);
     await set(ref(db, `gameSecrets/${state.roomCode}`), { mafiaUid: mafia });
-    await update(roomRef(), { phase: "role", round, startedAt: Date.now(), votes: null, results: null });
+    await update(roomRef(), { phase: "role", round, startedAt: Date.now(), votes: null, results: null, discussion: null });
   } catch (e) { err("lobby-error", "Could not start game: " + e.message); }
 }
 
@@ -170,14 +172,70 @@ async function loadRole() {
 function renderRole() {
   const role = state.myRole.role, imp = role === "mafia", host = isHost();
   $("role-card").classList.toggle("mafia", imp);
-  $("role-symbol").textContent = imp ? "🔪" : "🧑‍🚀";
+  $("role-symbol").innerHTML = crew(colorOf(players().find(p => p.uid === state.user.uid) || {}), imp ? "#ff8a95" : "#d8f6ff");
   $("role-name").textContent = imp ? "Impostor" : "Crewmate";
   $("role-description").textContent = imp ? "Blend in and steer the votes toward someone else." : "Find the one person lying to everyone.";
   $("role-card").classList.toggle("hidden", !state.roleVisible);
   $("hide-role").textContent = state.roleVisible ? "Hide my role" : "Reveal my role";
-  $("go-vote").classList.toggle("hidden", !host || !state.roleVisible);
+  $("go-discuss").classList.toggle("hidden", !host);
   $("role-wait").classList.toggle("hidden", host);
   showScreen("role-screen");
+}
+
+const TURN_MS = 60000, BOT_MS = 6000;
+const serverNow = () => Date.now() + state.offset;
+const toArr = x => Array.isArray(x) ? x : Object.values(x || {});
+const turnEnd = (uid, ps) => serverNow() + (ps.find(p => p.uid === uid)?.bot ? BOT_MS : TURN_MS);
+function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+async function startDiscussion() {
+  if (!isHost()) return;
+  try {
+    const ps = players(), order = shuffle(ps.map(p => p.uid));
+    await update(roomRef(), { phase: "discussion", discussion: { order, idx: 0, turnEndsAt: turnEnd(order[0], ps) } });
+  } catch { toast("Could not start the discussion."); }
+}
+function renderDiscussion() {
+  showScreen("discussion-screen");
+  const d = state.room.discussion || {}, order = toArr(d.order), idx = d.idx || 0, ps = players(), host = isHost(), me = state.user.uid;
+  const by = uid => ps.find(p => p.uid === uid), done = idx >= order.length, cur = done ? null : by(order[idx]);
+  $("discuss-round").textContent = `Round ${state.room.round || 1}`;
+  $("speaker-card").innerHTML = done
+    ? '<div class="speaker-name">Everyone has spoken.</div><div class="speaker-sub">Time to vote.</div>'
+    : `${crew(colorOf(cur || {}))}<div class="speaker-name">${escapeHtml(cur?.name || "Someone")}${cur?.uid === me ? " (you)" : ""}</div><div class="speaker-sub">${cur?.uid === me ? "It’s your turn. Make your case!" : "is making their case"}</div>`;
+  $("speak-order").innerHTML = order.map((u, i) => `<li class="${i < idx ? "past" : i === idx ? "now" : ""}">${escapeHtml(by(u)?.name || "Unknown")}</li>`).join("");
+  $("next-speaker").classList.toggle("hidden", !host || done);
+  $("next-speaker").textContent = idx >= order.length - 1 ? "Finish discussion" : "Next speaker";
+  $("go-vote").classList.toggle("hidden", !host);
+  $("go-vote").disabled = !done;
+  $("discuss-wait").classList.toggle("hidden", host);
+  tick();
+}
+let tickId = null, advancing = false;
+function startTick() { if (!tickId) tickId = setInterval(tick, 250); }
+function tick() {
+  const r = state.room;
+  if (!r || r.phase !== "discussion") { clearInterval(tickId); tickId = null; return; }
+  const d = r.discussion || {}, idx = d.idx || 0;
+  if (idx >= toArr(d.order).length || !d.turnEndsAt) { $("turn-timer").textContent = ""; return; }
+  const left = Math.max(0, Math.ceil((d.turnEndsAt - serverNow()) / 1000));
+  $("turn-timer").textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  if (isHost() && left <= 0 && !advancing) advanceTurn(idx);
+}
+async function advanceTurn(from) {
+  if (!isHost() || advancing) return;
+  advancing = true;
+  try {
+    const d = state.room.discussion || {}, order = toArr(d.order);
+    if ((d.idx || 0) !== from) { advancing = false; return; }
+    const next = from + 1;
+    await update(roomRef("discussion"), { idx: next, turnEndsAt: next < order.length ? turnEnd(order[next], players()) : null });
+    advancing = false;
+  } catch { toast("Could not move to the next speaker."); setTimeout(() => { advancing = false; }, 3000); }
+}
+async function peekRole() {
+  try { const s = await get(ref(db, `privateRoles/${state.roomCode}/${state.user.uid}`)); if (s.exists()) toast(s.val().role === "mafia" ? "You are the Impostor." : "You are a Crewmate."); }
+  catch { toast("Could not load your role."); }
 }
 
 async function goVoting() {
@@ -249,7 +307,7 @@ async function newRound() {
   try {
     await remove(ref(db, `privateRoles/${state.roomCode}`));
     await remove(ref(db, `gameSecrets/${state.roomCode}`));
-    await update(roomRef(), { phase: "lobby", votes: null, results: null });
+    await update(roomRef(), { phase: "lobby", votes: null, results: null, discussion: null });
   } catch (e) { toast("Could not start a new round."); }
 }
 async function leaveRoom() {
@@ -273,7 +331,10 @@ $("add-bot").onclick = addBot;
 $("copy-code").onclick = async () => { try { await navigator.clipboard.writeText(state.roomCode); toast("Room code copied."); } catch { toast("Room code: " + state.roomCode); } };
 $("leave-top").onclick = leaveRoom;
 $("hide-role").onclick = () => { state.roleVisible = !state.roleVisible; if (state.myRole) renderRole(); };
+$("go-discuss").onclick = startDiscussion;
 $("go-vote").onclick = goVoting;
+$("next-speaker").onclick = () => advanceTurn(state.room?.discussion?.idx || 0);
+$("peek-role").onclick = peekRole;
 $("submit-vote").onclick = castVote;
 $("end-round").onclick = calculateResults;
 $("new-round").onclick = newRound;

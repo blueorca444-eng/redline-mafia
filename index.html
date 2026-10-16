@@ -83,8 +83,18 @@
         <p id="role-description">Your role is private.</p>
       </div>
       <button class="btn btn-secondary full" id="hide-role">Hide my role</button>
-      <button class="btn btn-primary full role-continue hidden" id="go-vote">Start voting</button>
-      <p class="tiny-note hidden" id="role-wait">Waiting for the host to start voting.</p>
+      <button class="btn btn-primary full role-continue hidden" id="go-discuss">Start discussion</button>
+      <p class="tiny-note hidden" id="role-wait">Waiting for the host to start the discussion.</p>
+    </section>
+
+    <section class="discussion-screen screen hidden" id="discussion-screen">
+      <div class="kicker" id="discuss-round">Round 1</div>
+      <h2>Make your case</h2>
+      <p class="muted">Each player gets a turn, in random order. Convince the crew it isn’t you.</p>
+      <div class="speaker-card"><div id="speaker-card"></div><div class="turn-timer" id="turn-timer"></div></div>
+      <ol class="speak-order" id="speak-order"></ol>
+      <div class="discuss-actions"><button class="btn btn-secondary" id="peek-role">Remind me of my role</button><button class="btn btn-secondary hidden" id="next-speaker">Next speaker</button><button class="btn btn-primary hidden" id="go-vote" disabled>Start voting</button></div>
+      <p class="tiny-note hidden" id="discuss-wait">The host starts voting once everyone has spoken.</p>
     </section>
 
     <section class="vote-screen screen hidden" id="vote-screen">

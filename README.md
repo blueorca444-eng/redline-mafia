@@ -1,6 +1,6 @@
 # SussyRivals
 
-A bright, live party game for 1–6 players. One random player is the impostor, everyone else is a crewmate. Talk it out, then vote. Static site backed by Firebase Realtime Database and Anonymous Authentication.
+A bright, live party game for 1–6 players. One random player is the impostor, everyone else is a crewmate. Each player gets a timed turn (random order) to make their case, then everyone votes. Static site backed by Firebase Realtime Database and Anonymous Authentication.
 
 ## Setup
 
@@ -27,3 +27,7 @@ Create a room, then use **Add test player** in the lobby (host only, up to 6 pla
 - **Permission denied:** republish `database_rules.json` and check you're in the right Firebase project.
 - **Sign-in fails:** enable Anonymous sign-in.
 - **Room not found:** the host may have left, which closes the room.
+
+## Discussion
+
+After roles, the host starts the discussion. Turns are 60 seconds (6 seconds for test players) and the host's browser advances them. The host can press **Next speaker** at any time, and **Start voting** unlocks after the last turn. No Firebase rule changes are needed.
