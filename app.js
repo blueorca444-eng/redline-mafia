@@ -17,7 +17,7 @@ const MAX = 6;
 const COLORS = ["#ff4d5e","#4d7cff","#3fd17f","#ffd23f","#ff8fd0","#ff9a3d","#b16bff","#6fe3ff"];
 const BOT_NAMES = ["Bleep","Bloop","Zorp","Pip","Mox","Juno"];
 const ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const $ = id => document.getElementById(id);
+const $ = id => document.getElementById(id) || (console.warn("Missing element #" + id), document.createElement("div"));
 const screens = ["home-screen","entry-screen","lobby-screen","role-screen","vote-screen","results-screen"];
 const state = { user:null, roomCode:null, room:null, mode:"create", selectedVote:null, roleVisible:true, unsub:[], busy:false, shown:null, phaseKey:null, myRole:null, lastMafiaUid:null };
 const app = initializeApp(firebaseConfig);
@@ -35,6 +35,17 @@ const isHost = () => !!state.user && state.room?.hostUid === state.user.uid;
 const roomRef = (path = "") => ref(db, `rooms/${state.roomCode}${path ? "/" + path : ""}`);
 const save = v => { try { v ? localStorage.setItem("sr_room", v) : localStorage.removeItem("sr_room"); } catch {} };
 const saved = () => { try { return localStorage.getItem("sr_room"); } catch { return null; } };
+
+signInAnonymously(auth).catch(e => { console.error(e); state.authError = e.code || e.message; toast("Firebase sign-in failed: " + state.authError); });
+onAuthStateChanged(auth, async user => {
+  state.user = user;
+  const c = saved();
+  if (!user || !c || state.roomCode) return;
+  try {
+    const snap = await get(ref(db, `rooms/${c}`));
+    if (snap.exists() && snap.val().players?.[user.uid]) { state.roomCode = c; listenRoom(); } else save(null);
+  } catch {}
+});
 
 let toastTimer;
 function toast(message) { const el = $("toast"); el.textContent = message; el.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2400); }
@@ -95,7 +106,7 @@ async function enterRoom(e) {
   e.preventDefault(); if (state.busy) return;
   const name = safeName($("nickname").value);
   if (!name) return err("entry-error", "Enter a nickname to continue.");
-  if (!state.user) return err("entry-error", "Still connecting to Firebase. Try again in a moment.");
+  if (!state.user) return err("entry-error", state.authError ? "Firebase sign-in failed (" + state.authError + "). Check that Anonymous sign-in is enabled and this site is an authorized domain." : "Still connecting to Firebase. Wait a moment and try again.");
   state.busy = true; err("entry-error", "");
   try {
     const uid = state.user.uid; let c;
@@ -278,13 +289,3 @@ $("vote-list").addEventListener("click", e => {
 $("brand-crew").innerHTML = crew(COLORS[0]);
 $("hero-crew").innerHTML = [1, 2, 0, 3, 4].map(i => crew(COLORS[i])).join("");
 
-signInAnonymously(auth).catch(e => { console.error(e); toast("Firebase sign-in failed. Check setup instructions."); });
-onAuthStateChanged(auth, async user => {
-  state.user = user;
-  const c = saved();
-  if (!user || !c || state.roomCode) return;
-  try {
-    const snap = await get(ref(db, `rooms/${c}`));
-    if (snap.exists() && snap.val().players?.[user.uid]) { state.roomCode = c; listenRoom(); } else save(null);
-  } catch {}
-});
