@@ -25,7 +25,7 @@ const db = getDatabase(app);
 const auth = getAuth(app);
 onValue(ref(db, ".info/serverTimeOffset"), snap => { state.offset = snap.val() || 0; });
 
-const crew = (c, v = "#d8f6ff") => `<svg class="crew" viewBox="0 -4 40 48" aria-hidden="true"><path class="pack" d="M9 35C3 36 1 29 4 24" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/><rect x="7" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="22" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="7" y="2" width="26" height="34" rx="13" fill="${c}"/><path d="M8 11L9-3L19 4Z M32 11L31-3L21 4Z" fill="${c}"/><path d="M10.5 7L10.7 0.5L15.5 4.2Z M29.5 7L29.3 0.5L24.5 4.2Z" fill="#ffb3c7"/><rect x="17" y="9" width="19" height="12" rx="6" fill="${v}" stroke="#10102a" stroke-width="2"/><ellipse cx="29" cy="25" rx="2" ry="1.4" fill="#ff8fb0"/><path d="M31 26L38 24M31 27.5L38 29M27 26L20 24M27 27.5L20 29" stroke="#10102a" stroke-width="1" stroke-linecap="round"/></svg>`;
+const crew = (c, v = "#d8f6ff") => `<svg class="crew" viewBox="0 -4 40 48" aria-hidden="true"><path class="pack" d="M9 35C3 36 1 29 4 24" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/><rect x="7" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="22" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="7" y="2" width="26" height="34" rx="13" fill="${c}"/><path d="M8 11L9-3L19 4Z M32 11L31-3L21 4Z" fill="${c}"/><path d="M10.5 7L10.7 0.5L15.5 4.2Z M29.5 7L29.3 0.5L24.5 4.2Z" fill="#ffb3c7"/><rect x="17" y="9" width="19" height="12" rx="6" fill="${v}" stroke="#10102a" stroke-width="2"/></svg>`;
 const colorOf = p => COLORS[(Number.isInteger(p.c) ? p.c : 0) % COLORS.length];
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const safeName = s => String(s || "").trim().replace(/[<>]/g, "").slice(0, 18);
@@ -50,6 +50,7 @@ onAuthStateChanged(auth, async user => {
 
 function getHist() { if (state.hist[state.roomCode]) return state.hist[state.roomCode]; try { return JSON.parse(localStorage.getItem("sr_hist_" + state.roomCode) || "[]"); } catch { return []; } }
 function setHist(h) { state.hist[state.roomCode] = h; try { localStorage.setItem("sr_hist_" + state.roomCode, JSON.stringify(h)); } catch {} }
+const rkey = () => (state.room?.round || 0) + ":" + (state.room?.startedAt || 0);
 const ROLE_NAME = { mafia: "Impostor", villager: "Crewmate", joker: "Joker" };
 
 let toastTimer;
@@ -148,8 +149,10 @@ async function addBot() {
   catch (e) { err("lobby-error", "Could not add a test player: " + e.message); }
 }
 
+let starting = false;
 async function startGame() {
-  if (!isHost()) return;
+  if (!isHost() || starting) return;
+  starting = true;
   err("lobby-error", "");
   try {
     const ps = players(), round = (state.room.round || 0) + 1;
@@ -162,15 +165,16 @@ async function startGame() {
     const joker = others.length && Math.random() < 0.25 ? others[Math.floor(Math.random() * others.length)].uid : null;
     const writes = {};
     ps.forEach(p => writes[`privateRoles/${state.roomCode}/${p.uid}`] = { role: p.uid === mafia ? "mafia" : p.uid === joker ? "joker" : "villager", round });
+    const rc = state.roomCode;
+    writes[`gameSecrets/${rc}/mafiaUid`] = mafia + (joker ? ":" + joker : "");
+    Object.assign(writes, { [`rooms/${rc}/phase`]: "role", [`rooms/${rc}/round`]: round, [`rooms/${rc}/startedAt`]: Date.now(), [`rooms/${rc}/votes`]: null, [`rooms/${rc}/results`]: null, [`rooms/${rc}/discussion`]: null });
     await update(ref(db), writes);
-    await set(ref(db, `gameSecrets/${state.roomCode}`), { mafiaUid: mafia + (joker ? ":" + joker : "") });
-    await update(roomRef(), { phase: "role", round, startedAt: Date.now(), votes: null, results: null, discussion: null });
     setHist([...hist, mafia].slice(-2));
-  } catch (e) { err("lobby-error", "Could not start game: " + e.message); }
+  } catch (e) { err("lobby-error", "Could not start game: " + e.message); } finally { starting = false; }
 }
 
 async function fetchRole() {
-  const round = state.room?.round || 0;
+  const round = rkey();
   if (state.myRole?.round === round) return state.myRole.role;
   try {
     const snap = await get(ref(db, `privateRoles/${state.roomCode}/${state.user.uid}`));
@@ -180,7 +184,7 @@ async function fetchRole() {
   } catch { return null; }
 }
 function updateBadges() {
-  const role = state.myRole?.round === (state.room?.round || 0) ? state.myRole.role : null;
+  const role = state.myRole?.round === rkey() ? state.myRole.role : null;
   ["role-chip-d", "role-chip-v"].forEach(id => {
     const el = $(id);
     el.textContent = role ? `Your role: ${ROLE_NAME[role] || "Crewmate"}` : "";
@@ -190,10 +194,10 @@ function updateBadges() {
   });
 }
 async function loadRole() {
-  const round = state.room?.round || 0;
+  const round = rkey();
   const role = await fetchRole();
   if (!role) { toast("Could not load your private role."); return; }
-  if (state.room?.phase === "role" && (state.room.round || 0) === round) renderRole();
+  if (state.room?.phase === "role" && rkey() === round) renderRole();
 }
 function renderRole() {
   const role = state.myRole.role, imp = role === "mafia", jok = role === "joker", host = isHost();
@@ -393,5 +397,5 @@ $("vote-list").addEventListener("click", e => {
 });
 
 $("brand-crew").innerHTML = crew(COLORS[0]);
-$("hero-crew").innerHTML = [1, 2, 0, 3, 4].map(i => crew(COLORS[i])).join("");
+$("hero-crew").innerHTML = [1, 2, 0, 3, 4, 6].map(i => crew(COLORS[i])).join("");
 
