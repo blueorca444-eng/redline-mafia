@@ -30,4 +30,4 @@ Create a room, then use **Add test player** in the lobby (host only, up to 6 pla
 
 ## Discussion
 
-After roles, the host starts the discussion. Turns are 60 seconds (6 seconds for test players) and the host's browser advances them. The host can press **Next speaker** at any time, and **Start voting** unlocks after the last turn. No Firebase rule changes are needed.
+After roles, the host starts the discussion. Turns are 60 seconds. When time is up the timer shows "Time's up" and only the host can move on with **Next speaker** (test players advance automatically after 6 seconds). **Start voting** unlocks after the last turn, and **Start voting** unlocks after the last turn. No Firebase rule changes are needed.

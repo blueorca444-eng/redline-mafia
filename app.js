@@ -14,7 +14,7 @@ const firebaseConfig = {
 };
 
 const MAX = 6;
-const COLORS = ["#ff4d5e","#4d7cff","#3fd17f","#ffd23f","#ff8fd0","#ff9a3d","#b16bff","#6fe3ff"];
+const COLORS = ["#ff4d5e","#4d7cff","#3fd17f","#ffd23f","#b16bff","#ff9a3d","#ff8fd0","#6fe3ff"];
 const BOT_NAMES = ["Bleep","Bloop","Zorp","Pip","Mox","Juno"];
 const ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const $ = id => document.getElementById(id) || (console.warn("Missing element #" + id), document.createElement("div"));
@@ -25,7 +25,7 @@ const db = getDatabase(app);
 const auth = getAuth(app);
 onValue(ref(db, ".info/serverTimeOffset"), snap => { state.offset = snap.val() || 0; });
 
-const crew = (c, v = "#d8f6ff") => `<svg class="crew" viewBox="0 -4 40 48" aria-hidden="true"><path class="pack" d="M9 35C3 36 1 29 4 24" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/><rect x="7" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="22" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="7" y="2" width="26" height="34" rx="13" fill="${c}"/><path d="M8 11L9-3L19 4Z M32 11L31-3L21 4Z" fill="${c}"/><path d="M10.5 7L10.7 0.5L15.5 4.2Z M29.5 7L29.3 0.5L24.5 4.2Z" fill="#ffb3c7"/><rect x="17" y="9" width="19" height="12" rx="6" fill="${v}" stroke="#10102a" stroke-width="2"/><ellipse cx="29" cy="25" rx="2" ry="1.4" fill="#ff8fb0"/><path d="M31 26L38 24M31 27.5L38 29" stroke="#10102a" stroke-width="1" stroke-linecap="round"/></svg>`;
+const crew = (c, v = "#d8f6ff") => `<svg class="crew" viewBox="0 -4 40 48" aria-hidden="true"><path class="pack" d="M9 35C3 36 1 29 4 24" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round"/><rect x="7" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="22" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="7" y="2" width="26" height="34" rx="13" fill="${c}"/><path d="M8 11L9-3L19 4Z M32 11L31-3L21 4Z" fill="${c}"/><path d="M10.5 7L10.7 0.5L15.5 4.2Z M29.5 7L29.3 0.5L24.5 4.2Z" fill="#ffb3c7"/><rect x="17" y="9" width="19" height="12" rx="6" fill="${v}" stroke="#10102a" stroke-width="2"/><ellipse cx="29" cy="25" rx="2" ry="1.4" fill="#ff8fb0"/><path d="M31 26L38 24M31 27.5L38 29M27 26L20 24M27 27.5L20 29" stroke="#10102a" stroke-width="1" stroke-linecap="round"/></svg>`;
 const colorOf = p => COLORS[(Number.isInteger(p.c) ? p.c : 0) % COLORS.length];
 const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const safeName = s => String(s || "").trim().replace(/[<>]/g, "").slice(0, 18);
@@ -75,13 +75,14 @@ function listenRoom() {
 }
 function route() {
   const r = state.room, ph = r.phase, key = ph + ":" + (r.round || 0);
-  if (key !== state.phaseKey) { state.phaseKey = key; state.selectedVote = null; state.myRole = null; state.roleVisible = true; }
+  if (key !== state.phaseKey) { state.phaseKey = key; state.selectedVote = null; state.roleVisible = true; }
   $("leave-top").classList.remove("hidden");
   renderLobby();
   if (ph === "lobby") showScreen("lobby-screen");
   else if (ph === "role") loadRole();
   else if (ph === "discussion") { renderDiscussion(); startTick(); }
   else if (ph === "voting") renderVote();
+  if (ph === "discussion" || ph === "voting") fetchRole().then(updateBadges);
   else if (ph === "results") renderResults();
 }
 
@@ -158,16 +159,30 @@ async function startGame() {
   } catch (e) { err("lobby-error", "Could not start game: " + e.message); }
 }
 
+async function fetchRole() {
+  const round = state.room?.round || 0;
+  if (state.myRole?.round === round) return state.myRole.role;
+  try {
+    const snap = await get(ref(db, `privateRoles/${state.roomCode}/${state.user.uid}`));
+    if (!snap.exists()) return null;
+    state.myRole = { round, role: snap.val().role };
+    return state.myRole.role;
+  } catch { return null; }
+}
+function updateBadges() {
+  const role = state.myRole?.round === (state.room?.round || 0) ? state.myRole.role : null;
+  ["role-chip-d", "role-chip-v"].forEach(id => {
+    const el = $(id);
+    el.textContent = role ? `Your role: ${role === "mafia" ? "Impostor" : "Crewmate"}` : "";
+    el.classList.toggle("imp", role === "mafia");
+    el.classList.toggle("hidden", !role);
+  });
+}
 async function loadRole() {
-  const key = state.phaseKey;
-  if (state.myRole?.key !== key) {
-    try {
-      const snap = await get(ref(db, `privateRoles/${state.roomCode}/${state.user.uid}`));
-      if (!snap.exists()) return;
-      state.myRole = { key, role: snap.val().role };
-    } catch { toast("Could not load your private role."); return; }
-  }
-  if (state.phaseKey === key) renderRole();
+  const round = state.room?.round || 0;
+  const role = await fetchRole();
+  if (!role) { toast("Could not load your private role."); return; }
+  if (state.room?.phase === "role" && (state.room.round || 0) === round) renderRole();
 }
 function renderRole() {
   const role = state.myRole.role, imp = role === "mafia", host = isHost();
@@ -209,6 +224,7 @@ function renderDiscussion() {
   $("go-vote").classList.toggle("hidden", !host);
   $("go-vote").disabled = !done;
   $("discuss-wait").classList.toggle("hidden", host);
+  updateBadges();
   tick();
 }
 let tickId = null, advancing = false;
@@ -219,8 +235,10 @@ function tick() {
   const d = r.discussion || {}, idx = d.idx || 0;
   if (idx >= toArr(d.order).length || !d.turnEndsAt) { $("turn-timer").textContent = ""; return; }
   const left = Math.max(0, Math.ceil((d.turnEndsAt - serverNow()) / 1000));
-  $("turn-timer").textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
-  if (isHost() && left <= 0 && !advancing) advanceTurn(idx);
+  $("turn-timer").textContent = left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : "Time’s up";
+  $("next-speaker").classList.toggle("pulse", left <= 0);
+  const spk = players().find(p => p.uid === toArr(d.order)[idx]);
+  if (isHost() && left <= 0 && spk?.bot && !advancing) advanceTurn(idx);
 }
 async function advanceTurn(from) {
   if (!isHost() || advancing) return;
@@ -233,11 +251,6 @@ async function advanceTurn(from) {
     advancing = false;
   } catch { toast("Could not move to the next speaker."); setTimeout(() => { advancing = false; }, 3000); }
 }
-async function peekRole() {
-  try { const s = await get(ref(db, `privateRoles/${state.roomCode}/${state.user.uid}`)); if (s.exists()) toast(s.val().role === "mafia" ? "You are the Impostor." : "You are a Crewmate."); }
-  catch { toast("Could not load your role."); }
-}
-
 async function goVoting() {
   if (!isHost()) return;
   try {
@@ -258,6 +271,7 @@ function renderVote() {
   if (!others.some(p => p.uid === state.selectedVote)) state.selectedVote = null;
   $("vote-round").textContent = `Round ${state.room.round || 1}`;
   $("vote-list").innerHTML = others.length ? others.map(p => `<button class="vote-person ${state.selectedVote === p.uid ? "selected" : ""}" data-uid="${escapeHtml(p.uid)}" ${mine ? "disabled" : ""}><span class="vote-check">${state.selectedVote === p.uid ? "✓" : ""}</span>${crew(colorOf(p))}<b>${escapeHtml(p.name || "?")}</b><small>${p.bot ? "Test player" : p.uid === state.room.hostUid ? "Host" : "Player"}</small></button>`).join("") : '<p class="empty">Nobody else is aboard, so there’s no one to vote for. The host can end the round.</p>';
+  updateBadges();
   $("submit-vote").disabled = !state.selectedVote || !!mine;
   $("submit-vote").textContent = mine ? "Vote locked" : "Lock in vote";
   $("end-round").classList.toggle("hidden", !isHost());
@@ -334,7 +348,6 @@ $("hide-role").onclick = () => { state.roleVisible = !state.roleVisible; if (sta
 $("go-discuss").onclick = startDiscussion;
 $("go-vote").onclick = goVoting;
 $("next-speaker").onclick = () => advanceTurn(state.room?.discussion?.idx || 0);
-$("peek-role").onclick = peekRole;
 $("submit-vote").onclick = castVote;
 $("end-round").onclick = calculateResults;
 $("new-round").onclick = newRound;

@@ -117,3 +117,7 @@ footer{color:var(--muted);font-size:13px;margin-top:auto}
 .speak-order li.now{border-color:var(--yellow);color:var(--text)}
 .speak-order li.past{opacity:.45;text-decoration:line-through}
 .discuss-actions{display:flex;flex-direction:column;gap:10px}
+.role-chip{display:inline-block;border:2px solid var(--cyan);color:var(--cyan);background:var(--panel2);border-radius:20px;padding:3px 14px;font-weight:800;font-size:14px;margin:4px 0 8px}
+.role-chip.imp{border-color:var(--red);color:var(--red)}
+.btn.pulse{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 4px 0 var(--ink),0 0 0 6px #ffd23f55}}

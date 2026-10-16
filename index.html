@@ -90,15 +90,16 @@
     <section class="discussion-screen screen hidden" id="discussion-screen">
       <div class="kicker" id="discuss-round">Round 1</div>
       <h2>Make your case</h2>
+      <div class="role-chip hidden" id="role-chip-d"></div>
       <p class="muted">Each player gets a turn, in random order. Convince the crew it isn’t you.</p>
       <div class="speaker-card"><div id="speaker-card"></div><div class="turn-timer" id="turn-timer"></div></div>
       <ol class="speak-order" id="speak-order"></ol>
-      <div class="discuss-actions"><button class="btn btn-secondary" id="peek-role">Remind me of my role</button><button class="btn btn-secondary hidden" id="next-speaker">Next speaker</button><button class="btn btn-primary hidden" id="go-vote" disabled>Start voting</button></div>
+      <div class="discuss-actions"><button class="btn btn-secondary hidden" id="next-speaker">Next speaker</button><button class="btn btn-primary hidden" id="go-vote" disabled>Start voting</button></div>
       <p class="tiny-note hidden" id="discuss-wait">The host starts voting once everyone has spoken.</p>
     </section>
 
     <section class="vote-screen screen hidden" id="vote-screen">
-      <div class="vote-top"><div><div class="kicker" id="vote-round">Round 1</div><h2>Who is the impostor?</h2><p class="muted">Pick one person. Votes are final.</p></div><div class="vote-progress"><strong id="votes-cast">0</strong> / <span id="votes-total">0</span> voted</div></div>
+      <div class="vote-top"><div><div class="kicker" id="vote-round">Round 1</div><h2>Who is the impostor?</h2><p class="muted">Pick one person. Votes are final.</p><div class="role-chip hidden" id="role-chip-v"></div></div><div class="vote-progress"><strong id="votes-cast">0</strong> / <span id="votes-total">0</span> voted</div></div>
       <div id="vote-list" class="vote-grid"></div>
       <div class="vote-bottom"><span id="vote-status" class="muted">Waiting for votes…</span><div class="vote-btns"><button class="btn btn-secondary hidden" id="end-round">End round now</button><button class="btn btn-primary" id="submit-vote" disabled>Lock in vote</button></div></div>
       <p id="vote-error" class="error-text" role="alert"></p>
