@@ -31,3 +31,10 @@ Create a room, then use **Add test player** in the lobby (host only, up to 6 pla
 ## Discussion
 
 After roles, the host starts the discussion. Turns are 60 seconds. When time is up the timer shows "Time's up" and only the host can move on with **Next speaker** (test players advance automatically after 6 seconds). **Start voting** unlocks after the last turn, and **Start voting** unlocks after the last turn. No Firebase rule changes are needed.
+
+## Roles and reveal
+
+- **Impostor cooldown:** whoever was the impostor can't be picked again for the next 2 rounds (it relaxes only when there aren't enough players to follow it).
+- **Joker:** each round has a 25% chance of a hidden Joker, picked from the non-impostors. The Joker wins if the crew votes them out instead of the impostor. Nobody is told whether a Joker exists.
+- **Reveal:** after voting, everyone sees the vote counts. The host presses **Reveal the impostor** to show who the impostor (and Joker, if any) was and who won. "Play another round" appears after the reveal.
+- The impostor/Joker secret stays in the existing `gameSecrets` value, so no rules changes are needed. The cooldown memory lives in the host's browser, so it resets if the host switches devices.

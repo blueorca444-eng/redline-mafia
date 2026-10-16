@@ -19,7 +19,7 @@ const BOT_NAMES = ["Bleep","Bloop","Zorp","Pip","Mox","Juno"];
 const ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const $ = id => document.getElementById(id) || (console.warn("Missing element #" + id), document.createElement("div"));
 const screens = ["home-screen","entry-screen","lobby-screen","role-screen","discussion-screen","vote-screen","results-screen"];
-const state = { user:null, roomCode:null, room:null, mode:"create", selectedVote:null, roleVisible:true, unsub:[], busy:false, shown:null, phaseKey:null, myRole:null, lastMafiaUid:null, offset:0 };
+const state = { user:null, roomCode:null, room:null, mode:"create", selectedVote:null, roleVisible:true, unsub:[], busy:false, shown:null, phaseKey:null, myRole:null, lastMafiaUid:null, offset:0, hist:{} };
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const auth = getAuth(app);
@@ -47,6 +47,10 @@ onAuthStateChanged(auth, async user => {
     if (snap.exists() && snap.val().players?.[user.uid]) { state.roomCode = c; listenRoom(); } else save(null);
   } catch {}
 });
+
+function getHist() { if (state.hist[state.roomCode]) return state.hist[state.roomCode]; try { return JSON.parse(localStorage.getItem("sr_hist_" + state.roomCode) || "[]"); } catch { return []; } }
+function setHist(h) { state.hist[state.roomCode] = h; try { localStorage.setItem("sr_hist_" + state.roomCode, JSON.stringify(h)); } catch {} }
+const ROLE_NAME = { mafia: "Impostor", villager: "Crewmate", joker: "Joker" };
 
 let toastTimer;
 function toast(message) { const el = $("toast"); el.textContent = message; el.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2400); }
@@ -149,13 +153,19 @@ async function startGame() {
   err("lobby-error", "");
   try {
     const ps = players(), round = (state.room.round || 0) + 1;
-    const pool = ps.length > 1 ? ps.filter(p => p.uid !== state.lastMafiaUid) : ps;
+    const hist = getHist();
+    let pool = ps.filter(p => !hist.slice(-2).includes(p.uid));
+    if (!pool.length) pool = ps.filter(p => p.uid !== hist[hist.length - 1]);
+    if (!pool.length) pool = ps;
     const mafia = pool[Math.floor(Math.random() * pool.length)].uid;
+    const others = ps.filter(p => p.uid !== mafia);
+    const joker = others.length && Math.random() < 0.25 ? others[Math.floor(Math.random() * others.length)].uid : null;
     const writes = {};
-    ps.forEach(p => writes[`privateRoles/${state.roomCode}/${p.uid}`] = { role: p.uid === mafia ? "mafia" : "villager", round });
+    ps.forEach(p => writes[`privateRoles/${state.roomCode}/${p.uid}`] = { role: p.uid === mafia ? "mafia" : p.uid === joker ? "joker" : "villager", round });
     await update(ref(db), writes);
-    await set(ref(db, `gameSecrets/${state.roomCode}`), { mafiaUid: mafia });
+    await set(ref(db, `gameSecrets/${state.roomCode}`), { mafiaUid: mafia + (joker ? ":" + joker : "") });
     await update(roomRef(), { phase: "role", round, startedAt: Date.now(), votes: null, results: null, discussion: null });
+    setHist([...hist, mafia].slice(-2));
   } catch (e) { err("lobby-error", "Could not start game: " + e.message); }
 }
 
@@ -173,8 +183,9 @@ function updateBadges() {
   const role = state.myRole?.round === (state.room?.round || 0) ? state.myRole.role : null;
   ["role-chip-d", "role-chip-v"].forEach(id => {
     const el = $(id);
-    el.textContent = role ? `Your role: ${role === "mafia" ? "Impostor" : "Crewmate"}` : "";
+    el.textContent = role ? `Your role: ${ROLE_NAME[role] || "Crewmate"}` : "";
     el.classList.toggle("imp", role === "mafia");
+    el.classList.toggle("joker", role === "joker");
     el.classList.toggle("hidden", !role);
   });
 }
@@ -185,11 +196,12 @@ async function loadRole() {
   if (state.room?.phase === "role" && (state.room.round || 0) === round) renderRole();
 }
 function renderRole() {
-  const role = state.myRole.role, imp = role === "mafia", host = isHost();
+  const role = state.myRole.role, imp = role === "mafia", jok = role === "joker", host = isHost();
   $("role-card").classList.toggle("mafia", imp);
-  $("role-symbol").innerHTML = crew(colorOf(players().find(p => p.uid === state.user.uid) || {}), imp ? "#ff8a95" : "#d8f6ff");
-  $("role-name").textContent = imp ? "Impostor" : "Crewmate";
-  $("role-description").textContent = imp ? "Blend in and steer the votes toward someone else." : "Find the one person lying to everyone.";
+  $("role-card").classList.toggle("joker", jok);
+  $("role-symbol").innerHTML = crew(colorOf(players().find(p => p.uid === state.user.uid) || {}), imp ? "#ff8a95" : jok ? "#ffe27a" : "#d8f6ff");
+  $("role-name").textContent = ROLE_NAME[role] || "Crewmate";
+  $("role-description").textContent = imp ? "Blend in and steer the votes toward someone else." : jok ? "Get the crew to vote for you instead of the impostor. Look suspicious, but not too suspicious." : "Find the one person lying to everyone.";
   $("role-card").classList.toggle("hidden", !state.roleVisible);
   $("hide-role").textContent = state.roleVisible ? "Hide my role" : "Reveal my role";
   $("go-discuss").classList.toggle("hidden", !host);
@@ -220,7 +232,7 @@ function renderDiscussion() {
     : `${crew(colorOf(cur || {}))}<div class="speaker-name">${escapeHtml(cur?.name || "Someone")}${cur?.uid === me ? " (you)" : ""}</div><div class="speaker-sub">${cur?.uid === me ? "It’s your turn. Make your case!" : "is making their case"}</div>`;
   $("speak-order").innerHTML = order.map((u, i) => `<li class="${i < idx ? "past" : i === idx ? "now" : ""}">${escapeHtml(by(u)?.name || "Unknown")}</li>`).join("");
   $("next-speaker").classList.toggle("hidden", !host || done);
-  $("next-speaker").textContent = idx >= order.length - 1 ? "Finish discussion" : "Next speaker";
+  $("next-speaker").textContent = cur ? `Finish ${cur.name || "player"}’s discussion` : "Next speaker";
   $("go-vote").classList.toggle("hidden", !host);
   $("go-vote").disabled = !done;
   $("discuss-wait").classList.toggle("hidden", host);
@@ -296,25 +308,43 @@ async function calculateResults() {
     const snap = await get(roomRef("votes")), votes = snap.val() || {}, counts = {};
     Object.entries(votes).forEach(([voter, v]) => { if (ids.has(voter) && ids.has(v.targetUid)) counts[v.targetUid] = (counts[v.targetUid] || 0) + 1; });
     const max = Math.max(0, ...Object.values(counts)), winners = Object.keys(counts).filter(u => counts[u] === max);
-    const mafiaUid = (await get(ref(db, `gameSecrets/${state.roomCode}/mafiaUid`))).val();
-    const outcome = max === 0 || winners.length !== 1 ? "tie" : winners[0] === mafiaUid ? "caught" : "missed";
-    await update(roomRef(), { phase: "results", results: { counts, max, winners, outcome, mafiaUid, finishedAt: Date.now() } });
+    await update(roomRef(), { phase: "results", results: { counts, max, winners, finishedAt: Date.now(), revealed: false } });
   } catch (e) { toast("Could not count votes."); } finally { calculating = false; }
 }
 
 function renderResults() {
   showScreen("results-screen");
-  const r = state.room.results || {}, ps = players(), host = isHost();
+  const r = state.room.results || {}, ps = players(), host = isHost(), rev = !!r.revealed;
   const name = uid => (ps.find(p => p.uid === uid) || {}).name || "Unknown";
-  state.lastMafiaUid = r.mafiaUid;
-  $("results-title").textContent = r.outcome === "tie" ? "A tie. No verdict." : r.outcome === "caught" ? "Impostor caught!" : "Wrong accusation.";
-  $("results-outcome").textContent = r.outcome === "tie" ? "Vote tied" : r.outcome === "caught" ? "Crew wins" : "Impostor wins";
-  $("results-subtitle").textContent = r.outcome === "tie" ? "The top vote count was shared. Nobody wins this round." : "Here’s how everyone voted.";
+  const T = { tie: ["A tie. No verdict.", "Vote tied", "The top vote count was shared. Nobody wins this round."],
+    caught: ["Impostor caught!", "Crew wins", "The crew found the impostor."],
+    missed: ["Wrong accusation.", "Impostor wins", "The crew voted for the wrong person."],
+    joker: ["The Joker fooled you!", "Joker wins", "The crew voted out the Joker, so the impostor got away."] }[r.outcome] || [];
+  $("results-title").textContent = rev ? T[0] : "The votes are in.";
+  $("results-outcome").textContent = rev ? T[1] : "Votes counted";
+  $("results-subtitle").textContent = rev ? T[2] : "Here’s how everyone voted. The host reveals the impostor next.";
   const sorted = Object.entries(r.counts || {}).sort((a, b) => b[1] - a[1]);
   $("results-detail").innerHTML = sorted.length ? sorted.map(([u, n]) => `${escapeHtml(name(u))}: ${n} vote${n === 1 ? "" : "s"}`).join("<br>") : "No votes were recorded.";
-  $("mafia-name").textContent = name(r.mafiaUid);
-  $("new-round").classList.toggle("hidden", !host);
+  $("mafia-name").textContent = rev ? name(r.mafiaUid) : "???";
+  $("joker-reveal").classList.toggle("hidden", !(rev && r.jokerUid));
+  $("joker-name").textContent = rev && r.jokerUid ? name(r.jokerUid) : "—";
+  $("reveal-btn").classList.toggle("hidden", !host || rev);
+  $("new-round").classList.toggle("hidden", !host || !rev);
   $("results-wait").classList.toggle("hidden", host);
+  $("results-wait").textContent = rev ? "Waiting for the host to start another round." : "Waiting for the host to reveal the impostor.";
+}
+let revealing = false;
+async function revealImpostor() {
+  if (!isHost() || revealing) return;
+  revealing = true;
+  try {
+    const raw = (await get(ref(db, `gameSecrets/${state.roomCode}/mafiaUid`))).val() || "";
+    const [mafiaUid, jokerUid] = raw.split(":");
+    const w = toArr(state.room.results?.winners);
+    const win = w.length === 1 ? w[0] : null;
+    const outcome = !win ? "tie" : win === jokerUid ? "joker" : win === mafiaUid ? "caught" : "missed";
+    await update(roomRef("results"), { mafiaUid, jokerUid: jokerUid || null, outcome, revealed: true });
+  } catch { toast("Could not reveal the impostor."); } finally { revealing = false; }
 }
 async function newRound() {
   if (!isHost()) return;
@@ -351,6 +381,7 @@ $("next-speaker").onclick = () => advanceTurn(state.room?.discussion?.idx || 0);
 $("submit-vote").onclick = castVote;
 $("end-round").onclick = calculateResults;
 $("new-round").onclick = newRound;
+$("reveal-btn").onclick = revealImpostor;
 $("player-list").addEventListener("click", e => {
   const b = e.target.closest(".kick"); if (!b || !isHost()) return;
   remove(roomRef(`players/${b.dataset.uid}`)).catch(() => toast("Could not remove that player."));
