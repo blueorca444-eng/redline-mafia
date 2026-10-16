@@ -253,10 +253,11 @@ async function newRound() {
   } catch (e) { toast("Could not start a new round."); }
 }
 async function leaveRoom() {
-  const c = state.roomCode;
+  const c = state.roomCode, host = isHost();
+  stopListeners();
   try {
     if (c && state.user) {
-      if (isHost()) { await remove(ref(db, `privateRoles/${c}`)); await remove(ref(db, `gameSecrets/${c}`)); await remove(roomRef()); }
+      if (host) { await remove(ref(db, `privateRoles/${c}`)); await remove(ref(db, `gameSecrets/${c}`)); await remove(roomRef()); }
       else await remove(roomRef(`players/${state.user.uid}`));
     }
   } catch {}
