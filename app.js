@@ -1,8 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
-import { getDatabase, ref, set, get, update, remove, onValue, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-database.js";
+import { getDatabase, ref, set, get, update, remove, onValue } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-database.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
 
-// 1. Paste your Firebase web app config here (Firebase Console > Project settings).
 const firebaseConfig = {
   apiKey: "AIzaSyDghAyh8h-bacUaffE4gAq4pMYkwXewz9I",
   authDomain: "mafia-34c10.firebaseapp.com",
@@ -14,162 +13,278 @@ const firebaseConfig = {
   measurementId: "G-8WVC7M72Y8"
 };
 
+const MAX = 6;
+const COLORS = ["#ff4d5e","#4d7cff","#3fd17f","#ffd23f","#ff8fd0","#ff9a3d","#b16bff","#6fe3ff"];
+const BOT_NAMES = ["Bleep","Bloop","Zorp","Pip","Mox","Juno"];
+const ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const $ = id => document.getElementById(id);
 const screens = ["home-screen","entry-screen","lobby-screen","role-screen","vote-screen","results-screen"];
-const state = { user:null, roomCode:null, room:null, mode:"create", selectedVote:null, roleVisible:true, unsub:[], busy:false };
+const state = { user:null, roomCode:null, room:null, mode:"create", selectedVote:null, roleVisible:true, unsub:[], busy:false, shown:null, phaseKey:null, myRole:null, lastMafiaUid:null };
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const auth = getAuth(app);
 
-function showScreen(id){ screens.forEach(s => $(s).classList.toggle("hidden",s!==id)); window.scrollTo({top:0,behavior:"smooth"}); }
-function toast(message){ const el=$("toast"); el.textContent=message; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),2200); }
-function err(id,message){ $(id).textContent=message||""; }
-function code(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
-function safeName(s){ return String(s||"").trim().replace(/[<>]/g,"").slice(0,18); }
-function players(){ return Object.values(state.room?.players||{}).sort((a,b)=>(a.joinedAt||0)-(b.joinedAt||0)); }
-function isHost(){ return state.room?.hostUid===state.user?.uid; }
-function roomRef(path=""){ return ref(db,`rooms/${state.roomCode}${path?"/"+path:""}`); }
-function stopListeners(){ state.unsub.forEach(fn=>fn());state.unsub=[]; }
-function listenRoom(){
-  stopListeners();
-  state.unsub.push(onValue(roomRef(),snap=>{
-    if(!snap.exists()){ toast("This room no longer exists."); resetLocal(); return; }
-    state.room=snap.val(); renderRoom();
-    if(state.room.phase==="role") loadRole();
-    if(state.room.phase==="voting") renderVote();
-    if(state.room.phase==="results") renderResults();
-  },e=>toast("Connection error: "+e.message)));
-  state.unsub.push(onValue(roomRef("votes"),snap=>{
-    if(state.room){state.room.votes=snap.val()||{};updateVoteProgress();}
-  }));
-}
-function renderRoom(){
-  if(!state.room)return;
-  $("room-code-display").textContent=state.roomCode;
-  const ps=players(); $("player-count").textContent=`${ps.length} / 12`;
-  $("player-list").innerHTML=ps.map((p,i)=>`<div class="player-row"><div class="avatar">${escapeHtml((p.name||"?")[0].toUpperCase())}</div><span class="player-name">${escapeHtml(p.name)}</span>${p.uid===state.room.hostUid?'<span class="host-tag">HOST</span>':''}${p.uid===state.user.uid?'<span class="you-tag">YOU</span>':''}</div>`).join("");
-  $("lobby-status").textContent=ps.length<3?"Need at least 3 players to start.":"Ready when you are.";
-  $("start-game").classList.toggle("hidden",!isHost());
-  $("start-game").disabled=ps.length<3||state.room.phase!=="lobby";
-  if(state.room.phase==="lobby" && ! $("lobby-screen").classList.contains("hidden")){}
-  if(state.room.phase==="role" && !$("role-screen").classList.contains("hidden")) loadRole();
-  if(state.room.phase==="voting" && !$("vote-screen").classList.contains("hidden")) renderVote();
-  if(state.room.phase==="results") renderResults();
-}
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function resetLocal(){stopListeners();state.roomCode=null;state.room=null;state.selectedVote=null;showScreen("home-screen");}
-function openEntry(mode){state.mode=mode;$("entry-title").textContent=mode==="create"?"Create your room":"Join a room";$("entry-subtitle").textContent=mode==="create"?"Set a nickname and open your private lobby.":"Enter the room code your friend shared."; $("entry-submit").innerHTML=mode==="create"?'Create room <span>→</span>':'Join room <span>→</span>'; $("room-code-wrap").classList.toggle("hidden",mode==="create");err("entry-error","");showScreen("entry-screen");}
-async function enterRoom(e){
- e.preventDefault(); if(state.busy)return; state.busy=true;
- const name=safeName($("nickname").value); if(!name){state.busy=false;return;}
- try{
-  if(!state.user) throw new Error("Still connecting to Firebase. Check your configuration.");
-  if(state.mode==="create"){
-   let c; do{c=code();}while((await get(ref(db,`rooms/${c}`))).exists());
-   state.roomCode=c;
-   await set(roomRef(),{hostUid:state.user.uid,phase:"lobby",createdAt:Date.now(),players:{[state.user.uid]:{uid:state.user.uid,name,joinedAt:Date.now()}}});
-  }else{
-   const c=$("room-code").value.trim().toUpperCase(); if(!/^[A-Z0-9]{6}$/.test(c))throw new Error("Enter the 6-character room code.");
-   state.roomCode=c;const snap=await get(roomRef());
-   if(!snap.exists())throw new Error("Room not found. Check the code and try again.");
-   const room=snap.val();if(room.phase!=="lobby")throw new Error("This game has already started.");
-if(Object.keys(room.players||{}).length>=6)throw new Error("This room is full (max 6 players).");
-    await set(roomRef(`players/${state.user.uid}`),{uid:state.user.uid,name,joinedAt:Date.now()});
-  }
-  listenRoom();showScreen("lobby-screen");
- }catch(ex){err("entry-error",ex.message||"Could not enter the room.");state.roomCode=null;}
- finally{state.busy=false;}
-}
-async function startGame(){
- if(!isHost()||players().length<3)return;
- try{
-  const ps=players();const mafia=ps[Math.floor(Math.random()*ps.length)].uid;
-  const roleWrites={};ps.forEach(p=>roleWrites[`privateRoles/${state.roomCode}/${p.uid}`]={role:p.uid===mafia?"mafia":"villager",round:(state.room.round||0)+1});
-  await update(ref(db),roleWrites);
-  await set(ref(db,`gameSecrets/${state.roomCode}`),{mafiaUid:mafia});
-  await update(roomRef(),{phase:"role",round:(state.room.round||0)+1,startedAt:Date.now(),votes:{},results:null});
- }catch(e){err("lobby-error","Could not start game: "+e.message);}
-}
-async function loadRole(){
- if(!state.room||state.room.phase!=="role")return;
- try{
-  const snap=await get(ref(db,`privateRoles/${state.roomCode}/${state.user.uid}`));if(!snap.exists())return;
-  const role=snap.val().role;state.myRole=role;
-  $("role-card").classList.toggle("mafia",role==="mafia");
-  $("role-symbol").textContent=role==="mafia"?"♠":"✦";
-  $("role-name").textContent=role==="mafia"?"THE MAFIA":"VILLAGER";
-  $("role-description").textContent=role==="mafia"?"Blend in. Convince them to vote for someone else.":"Find the one person lying to everyone.";
-  $("role-card").classList.toggle("hidden",!state.roleVisible);
-  $("hide-role").textContent=state.roleVisible?"Hide my role":"Reveal my role";
-  $("go-vote").classList.toggle("hidden",!state.roleVisible);
-  showScreen("role-screen");
- }catch(e){toast("Could not load your private role.");}
-}
-async function goVoting(){if(!isHost())return;await update(roomRef(),{phase:"voting",votes:{},votingStartedAt:Date.now()});}
-function renderVote(){
- if(state.room?.phase!=="voting")return;showScreen("vote-screen");
- const ps=players();const votes=state.room.votes||{};const mine=votes[state.user.uid];
- state.selectedVote=mine?.targetUid||state.selectedVote;
- $("vote-list").innerHTML=ps.filter(p=>p.uid!==state.user.uid).map(p=>`<button class="vote-person ${state.selectedVote===p.uid?"selected":""}" data-uid="${p.uid}" ${mine?"disabled":""}><span class="vote-check">${state.selectedVote===p.uid?"✓":""}</span><span class="avatar">${escapeHtml(p.name[0].toUpperCase())}</span><b>${escapeHtml(p.name)}</b><small>${p.uid===state.room.hostUid?"HOST":"PLAYER"}</small></button>`).join("");
- document.querySelectorAll(".vote-person").forEach(b=>b.addEventListener("click",()=>{if(!state.room.votes?.[state.user.uid]){state.selectedVote=b.dataset.uid;renderVote();}}));
- $("submit-vote").disabled=!state.selectedVote||!!mine;
- $("submit-vote").textContent=mine?"Vote locked":"Lock in vote →";
- updateVoteProgress();
-}
-function updateVoteProgress(){
- if(!state.room)return;const votes=state.room.votes||{};const count=Object.keys(votes).length;
- $("votes-cast").textContent=count;$("votes-total").textContent=players().length;
- $("vote-status").textContent=count===players().length?"All votes are in. Counting…":`${players().length-count} player${players().length-count===1?"":"s"} still to vote`;
- if(isHost()&&count===players().length&&players().length>0&&state.room.phase==="voting")calculateResults();
-}
-let calculating=false;
-async function castVote(){
- const target=state.selectedVote;if(!target||!state.room||state.room.votes?.[state.user.uid])return;
- try{
-  await set(roomRef(`votes/${state.user.uid}`),{voterUid:state.user.uid,targetUid:target,at:Date.now()});
-  $("submit-vote").disabled=true;toast("Vote locked in.");
- }catch(e){err("vote-error",e.message);}
-}
-async function calculateResults(){
- if(calculating||!isHost())return;calculating=true;
- try{
-  const snap=await get(roomRef("votes"));const votes=snap.val()||{};const counts={};
-  Object.values(votes).forEach(v=>counts[v.targetUid]=(counts[v.targetUid]||0)+1);
-  const max=Math.max(0,...Object.values(counts));const winners=Object.keys(counts).filter(uid=>counts[uid]===max);
-  const secretSnap=await get(ref(db,`gameSecrets/${state.roomCode}/mafiaUid`));
-  const mafiaUid=secretSnap.val();
-  const outcome=max===0||winners.length!==1?"tie":(winners[0]===mafiaUid?"mafia_caught":"villagers_wrong");
-  await update(roomRef(),{phase:"results",results:{counts,max,winners,outcome,mafiaUid,finishedAt:Date.now()}});
- }catch(e){toast("Could not count votes.");}finally{calculating=false;}
-}
-function renderResults(){
- if(!state.room||state.room.phase!=="results")return;showScreen("results-screen");
- const r=state.room.results||{};const ps=players();const names=uid=>(ps.find(p=>p.uid===uid)||{}).name||"Unknown";
- const title=r.outcome==="tie"?"A tie. No verdict.":r.outcome==="mafia_caught"?"Mafia exposed.": "Wrong accusation.";
- $("results-title").textContent=title;$("results-outcome").textContent=r.outcome==="tie"?"VOTE TIED":r.outcome==="mafia_caught"?"MAFIA CAUGHT":"VILLAGERS MISSED";
- $("results-subtitle").textContent=r.outcome==="tie"?"The highest vote count was shared. Nobody wins this round.":"The room has spoken. Here's how everyone voted.";
- const counts=r.counts||{};const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
- $("results-detail").innerHTML=sorted.length?sorted.map(([uid,n])=>`${escapeHtml(names(uid))} — ${n} vote${n===1?"":"s"}`).join("<br>"):"No votes were recorded.";
- $("mafia-name").textContent=names(r.mafiaUid);
- $("new-round").classList.toggle("hidden",!isHost());$("back-lobby").classList.toggle("hidden",!isHost());
-}
-async function newRound(){
- if(!isHost())return;
- const updates={phase:"lobby",votes:{},results:null};
- await update(roomRef(),updates);
- const snap=await get(ref(db,`privateRoles/${state.roomCode}`));
- if(snap.exists())await remove(ref(db,`privateRoles/${state.roomCode}`));await remove(ref(db,`gameSecrets/${state.roomCode}`));
- showScreen("lobby-screen");
-}
-async function leaveRoom(){
- try{if(state.roomCode&&state.user){await remove(roomRef(`players/${state.user.uid}`));if(isHost())await remove(roomRef());}}catch{}
- resetLocal();
-}
-$("show-create").onclick=()=>openEntry("create");$("show-join").onclick=()=>openEntry("join");$("back-home").onclick=()=>showScreen("home-screen");$("entry-form").addEventListener("submit",enterRoom);
-$("start-game").onclick=startGame;$("copy-code").onclick=async()=>{try{await navigator.clipboard.writeText(state.roomCode);toast("Room code copied.");}catch{toast("Room code: "+state.roomCode);}};
-$("leave-room").onclick=leaveRoom;$("hide-role").onclick=()=>{state.roleVisible=!state.roleVisible;loadRole();};
-$("go-vote").onclick=goVoting;$("submit-vote").onclick=castVote;$("back-lobby").onclick=()=>showScreen("lobby-screen");$("new-round").onclick=newRound;
+const crew = c => `<svg class="crew" viewBox="0 0 40 44" aria-hidden="true"><rect class="pack" x="2" y="14" width="9" height="17" rx="4" fill="${c}"/><rect x="7" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="22" y="31" width="11" height="11" rx="4" fill="${c}"/><rect x="7" y="2" width="26" height="34" rx="13" fill="${c}"/><rect x="17" y="9" width="19" height="12" rx="6" fill="#d8f6ff" stroke="#10102a" stroke-width="2"/></svg>`;
+const colorOf = p => COLORS[(Number.isInteger(p.c) ? p.c : 0) % COLORS.length];
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const safeName = s => String(s || "").trim().replace(/[<>]/g, "").slice(0, 18);
+const err = (id, m) => { $(id).textContent = m || ""; };
+const code = () => Array.from({length:6}, () => ALPHA[Math.floor(Math.random() * ALPHA.length)]).join("");
+const players = () => Object.entries(state.room?.players || {}).map(([uid, p]) => ({ ...p, uid })).sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
+const isHost = () => !!state.user && state.room?.hostUid === state.user.uid;
+const roomRef = (path = "") => ref(db, `rooms/${state.roomCode}${path ? "/" + path : ""}`);
+const save = v => { try { v ? localStorage.setItem("sr_room", v) : localStorage.removeItem("sr_room"); } catch {} };
+const saved = () => { try { return localStorage.getItem("sr_room"); } catch { return null; } };
 
-// Anonymous auth is required so Firebase rules can isolate private roles per player.
-signInAnonymously(auth).catch(e=>{console.error(e);toast("Firebase sign-in failed. Check setup instructions.");});
-onAuthStateChanged(auth,user=>{state.user=user;if(user)console.info("Firebase connected; anonymous player UID ready.");});
+let toastTimer;
+function toast(message) { const el = $("toast"); el.textContent = message; el.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 2400); }
+function showScreen(id) {
+  if (state.shown === id) return;
+  state.shown = id;
+  screens.forEach(s => $(s).classList.toggle("hidden", s !== id));
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+function stopListeners() { state.unsub.forEach(fn => fn()); state.unsub = []; }
+function resetLocal() {
+  stopListeners(); save(null);
+  Object.assign(state, { roomCode:null, room:null, selectedVote:null, phaseKey:null, myRole:null, roleVisible:true });
+  $("leave-top").classList.add("hidden");
+  showScreen("home-screen");
+}
+
+function listenRoom() {
+  stopListeners();
+  state.unsub.push(onValue(roomRef(), snap => {
+    if (!snap.exists()) { toast("This room was closed."); resetLocal(); return; }
+    state.room = snap.val();
+    if (!state.room.players?.[state.user.uid]) { toast("You were removed from the room."); resetLocal(); return; }
+    route();
+  }, e => toast("Connection error: " + e.message)));
+}
+function route() {
+  const r = state.room, ph = r.phase, key = ph + ":" + (r.round || 0);
+  if (key !== state.phaseKey) { state.phaseKey = key; state.selectedVote = null; state.myRole = null; state.roleVisible = true; }
+  $("leave-top").classList.remove("hidden");
+  renderLobby();
+  if (ph === "lobby") showScreen("lobby-screen");
+  else if (ph === "role") loadRole();
+  else if (ph === "voting") renderVote();
+  else if (ph === "results") renderResults();
+}
+
+function renderLobby() {
+  const r = state.room, ps = players(), host = isHost(), inLobby = r.phase === "lobby";
+  $("room-code-display").textContent = state.roomCode;
+  $("player-count").textContent = `${ps.length} / ${MAX}`;
+  $("player-list").innerHTML = ps.map(p => `<div class="player-row">${crew(colorOf(p))}<span class="player-name">${escapeHtml(p.name || "?")}</span>${p.uid === r.hostUid ? '<span class="tag">Host</span>' : ""}${p.bot ? '<span class="tag">Test</span>' : ""}${p.uid === state.user.uid ? '<span class="tag you">You</span>' : ""}${host && inLobby && p.uid !== state.user.uid ? `<button class="kick" data-uid="${escapeHtml(p.uid)}" aria-label="Remove ${escapeHtml(p.name || "player")}">✕</button>` : ""}</div>`).join("");
+  $("lobby-status").textContent = ps.length === 1 ? (host ? "Solo mode. Add a test player to try voting." : "Waiting for more players…") : (host ? "Ready when you are." : "Waiting for the host to start…");
+  $("start-game").classList.toggle("hidden", !host);
+  $("start-game").disabled = !inLobby;
+  $("add-bot").classList.toggle("hidden", !host || !inLobby || ps.length >= MAX);
+}
+
+function openEntry(mode) {
+  state.mode = mode;
+  $("entry-title").textContent = mode === "create" ? "Create your room" : "Join a room";
+  $("entry-subtitle").textContent = mode === "create" ? "Pick a nickname and open your lobby." : "Enter the room code your friend shared.";
+  $("entry-submit").textContent = mode === "create" ? "Create room" : "Join room";
+  $("room-code-wrap").classList.toggle("hidden", mode === "create");
+  err("entry-error", ""); showScreen("entry-screen");
+}
+async function enterRoom(e) {
+  e.preventDefault(); if (state.busy) return;
+  const name = safeName($("nickname").value);
+  if (!name) return err("entry-error", "Enter a nickname to continue.");
+  if (!state.user) return err("entry-error", "Still connecting to Firebase. Try again in a moment.");
+  state.busy = true; err("entry-error", "");
+  try {
+    const uid = state.user.uid; let c;
+    if (state.mode === "create") {
+      do { c = code(); } while ((await get(ref(db, `rooms/${c}`))).exists());
+      state.roomCode = c;
+      await set(roomRef(), { hostUid: uid, phase: "lobby", round: 0, createdAt: Date.now(), players: { [uid]: { name, joinedAt: Date.now(), c: 0 } } });
+    } else {
+      c = $("room-code").value.trim().toUpperCase();
+      if (!/^[A-Z0-9]{6}$/.test(c)) throw new Error("Enter the 6-character room code.");
+      state.roomCode = c;
+      const snap = await get(roomRef());
+      if (!snap.exists()) throw new Error("Room not found. Check the code and try again.");
+      const room = snap.val(), ps = room.players || {};
+      if (!ps[uid]) {
+        if (room.phase !== "lobby") throw new Error("This game has already started.");
+        if (Object.keys(ps).length >= MAX) throw new Error(`This room is full (max ${MAX} players).`);
+        const used = new Set(Object.values(ps).map(p => p.c)); let k = 0; while (used.has(k)) k++;
+        await set(roomRef(`players/${uid}`), { name, joinedAt: Date.now(), c: k });
+      }
+    }
+    save(c); listenRoom();
+  } catch (ex) { err("entry-error", ex.message || "Could not enter the room."); state.roomCode = null; }
+  finally { state.busy = false; }
+}
+
+async function addBot() {
+  const ps = players(); if (!isHost() || ps.length >= MAX) return;
+  const used = new Set(ps.map(p => p.c)); let c = 0; while (used.has(c)) c++;
+  const names = new Set(ps.map(p => p.name)); const name = BOT_NAMES.find(n => !names.has(n)) || "Bot";
+  try { await set(roomRef(`players/bot_${Math.random().toString(36).slice(2, 8)}`), { name, joinedAt: Date.now(), c, bot: true }); }
+  catch (e) { err("lobby-error", "Could not add a test player: " + e.message); }
+}
+
+async function startGame() {
+  if (!isHost()) return;
+  err("lobby-error", "");
+  try {
+    const ps = players(), round = (state.room.round || 0) + 1;
+    const pool = ps.length > 1 ? ps.filter(p => p.uid !== state.lastMafiaUid) : ps;
+    const mafia = pool[Math.floor(Math.random() * pool.length)].uid;
+    const writes = {};
+    ps.forEach(p => writes[`privateRoles/${state.roomCode}/${p.uid}`] = { role: p.uid === mafia ? "mafia" : "villager", round });
+    await update(ref(db), writes);
+    await set(ref(db, `gameSecrets/${state.roomCode}`), { mafiaUid: mafia });
+    await update(roomRef(), { phase: "role", round, startedAt: Date.now(), votes: null, results: null });
+  } catch (e) { err("lobby-error", "Could not start game: " + e.message); }
+}
+
+async function loadRole() {
+  const key = state.phaseKey;
+  if (state.myRole?.key !== key) {
+    try {
+      const snap = await get(ref(db, `privateRoles/${state.roomCode}/${state.user.uid}`));
+      if (!snap.exists()) return;
+      state.myRole = { key, role: snap.val().role };
+    } catch { toast("Could not load your private role."); return; }
+  }
+  if (state.phaseKey === key) renderRole();
+}
+function renderRole() {
+  const role = state.myRole.role, imp = role === "mafia", host = isHost();
+  $("role-card").classList.toggle("mafia", imp);
+  $("role-symbol").textContent = imp ? "🔪" : "🧑‍🚀";
+  $("role-name").textContent = imp ? "Impostor" : "Crewmate";
+  $("role-description").textContent = imp ? "Blend in and steer the votes toward someone else." : "Find the one person lying to everyone.";
+  $("role-card").classList.toggle("hidden", !state.roleVisible);
+  $("hide-role").textContent = state.roleVisible ? "Hide my role" : "Reveal my role";
+  $("go-vote").classList.toggle("hidden", !host || !state.roleVisible);
+  $("role-wait").classList.toggle("hidden", host);
+  showScreen("role-screen");
+}
+
+async function goVoting() {
+  if (!isHost()) return;
+  try {
+    await update(roomRef(), { phase: "voting", votes: null, votingStartedAt: Date.now() });
+    const ps = players();
+    ps.filter(p => p.bot).forEach((b, i) => setTimeout(() => {
+      const opts = ps.filter(p => p.uid !== b.uid); if (!opts.length) return;
+      set(roomRef(`votes/${b.uid}`), { voterUid: b.uid, targetUid: opts[Math.floor(Math.random() * opts.length)].uid, at: Date.now() }).catch(() => {});
+    }, 1200 + i * 900));
+  } catch (e) { toast("Could not start voting."); }
+}
+
+function renderVote() {
+  showScreen("vote-screen");
+  const ps = players(), uid = state.user.uid, votes = state.room.votes || {}, mine = votes[uid];
+  const others = ps.filter(p => p.uid !== uid);
+  if (mine) state.selectedVote = mine.targetUid;
+  if (!others.some(p => p.uid === state.selectedVote)) state.selectedVote = null;
+  $("vote-round").textContent = `Round ${state.room.round || 1}`;
+  $("vote-list").innerHTML = others.length ? others.map(p => `<button class="vote-person ${state.selectedVote === p.uid ? "selected" : ""}" data-uid="${escapeHtml(p.uid)}" ${mine ? "disabled" : ""}><span class="vote-check">${state.selectedVote === p.uid ? "✓" : ""}</span>${crew(colorOf(p))}<b>${escapeHtml(p.name || "?")}</b><small>${p.bot ? "Test player" : p.uid === state.room.hostUid ? "Host" : "Player"}</small></button>`).join("") : '<p class="empty">Nobody else is aboard, so there’s no one to vote for. The host can end the round.</p>';
+  $("submit-vote").disabled = !state.selectedVote || !!mine;
+  $("submit-vote").textContent = mine ? "Vote locked" : "Lock in vote";
+  $("end-round").classList.toggle("hidden", !isHost());
+  const count = ps.filter(p => votes[p.uid]).length, left = ps.length - count;
+  $("votes-cast").textContent = count; $("votes-total").textContent = ps.length;
+  $("vote-status").textContent = left === 0 ? "All votes are in. Counting…" : `${left} player${left === 1 ? "" : "s"} still to vote`;
+  if (isHost() && ps.length > 1 && left === 0) calculateResults();
+}
+async function castVote() {
+  const target = state.selectedVote;
+  if (!target || !state.room || state.room.votes?.[state.user.uid]) return;
+  try { await set(roomRef(`votes/${state.user.uid}`), { voterUid: state.user.uid, targetUid: target, at: Date.now() }); toast("Vote locked in."); }
+  catch (e) { err("vote-error", e.message); }
+}
+
+let calculating = false;
+async function calculateResults() {
+  if (calculating || !isHost() || state.room?.phase !== "voting") return;
+  calculating = true;
+  try {
+    const ids = new Set(players().map(p => p.uid));
+    const snap = await get(roomRef("votes")), votes = snap.val() || {}, counts = {};
+    Object.entries(votes).forEach(([voter, v]) => { if (ids.has(voter) && ids.has(v.targetUid)) counts[v.targetUid] = (counts[v.targetUid] || 0) + 1; });
+    const max = Math.max(0, ...Object.values(counts)), winners = Object.keys(counts).filter(u => counts[u] === max);
+    const mafiaUid = (await get(ref(db, `gameSecrets/${state.roomCode}/mafiaUid`))).val();
+    const outcome = max === 0 || winners.length !== 1 ? "tie" : winners[0] === mafiaUid ? "caught" : "missed";
+    await update(roomRef(), { phase: "results", results: { counts, max, winners, outcome, mafiaUid, finishedAt: Date.now() } });
+  } catch (e) { toast("Could not count votes."); } finally { calculating = false; }
+}
+
+function renderResults() {
+  showScreen("results-screen");
+  const r = state.room.results || {}, ps = players(), host = isHost();
+  const name = uid => (ps.find(p => p.uid === uid) || {}).name || "Unknown";
+  state.lastMafiaUid = r.mafiaUid;
+  $("results-title").textContent = r.outcome === "tie" ? "A tie. No verdict." : r.outcome === "caught" ? "Impostor caught!" : "Wrong accusation.";
+  $("results-outcome").textContent = r.outcome === "tie" ? "Vote tied" : r.outcome === "caught" ? "Crew wins" : "Impostor wins";
+  $("results-subtitle").textContent = r.outcome === "tie" ? "The top vote count was shared. Nobody wins this round." : "Here’s how everyone voted.";
+  const sorted = Object.entries(r.counts || {}).sort((a, b) => b[1] - a[1]);
+  $("results-detail").innerHTML = sorted.length ? sorted.map(([u, n]) => `${escapeHtml(name(u))}: ${n} vote${n === 1 ? "" : "s"}`).join("<br>") : "No votes were recorded.";
+  $("mafia-name").textContent = name(r.mafiaUid);
+  $("new-round").classList.toggle("hidden", !host);
+  $("results-wait").classList.toggle("hidden", host);
+}
+async function newRound() {
+  if (!isHost()) return;
+  try {
+    await remove(ref(db, `privateRoles/${state.roomCode}`));
+    await remove(ref(db, `gameSecrets/${state.roomCode}`));
+    await update(roomRef(), { phase: "lobby", votes: null, results: null });
+  } catch (e) { toast("Could not start a new round."); }
+}
+async function leaveRoom() {
+  const c = state.roomCode;
+  try {
+    if (c && state.user) {
+      if (isHost()) { await remove(ref(db, `privateRoles/${c}`)); await remove(ref(db, `gameSecrets/${c}`)); await remove(roomRef()); }
+      else await remove(roomRef(`players/${state.user.uid}`));
+    }
+  } catch {}
+  resetLocal();
+}
+
+$("show-create").onclick = () => openEntry("create");
+$("show-join").onclick = () => openEntry("join");
+$("back-home").onclick = () => showScreen("home-screen");
+$("entry-form").addEventListener("submit", enterRoom);
+$("start-game").onclick = startGame;
+$("add-bot").onclick = addBot;
+$("copy-code").onclick = async () => { try { await navigator.clipboard.writeText(state.roomCode); toast("Room code copied."); } catch { toast("Room code: " + state.roomCode); } };
+$("leave-top").onclick = leaveRoom;
+$("hide-role").onclick = () => { state.roleVisible = !state.roleVisible; if (state.myRole) renderRole(); };
+$("go-vote").onclick = goVoting;
+$("submit-vote").onclick = castVote;
+$("end-round").onclick = calculateResults;
+$("new-round").onclick = newRound;
+$("player-list").addEventListener("click", e => {
+  const b = e.target.closest(".kick"); if (!b || !isHost()) return;
+  remove(roomRef(`players/${b.dataset.uid}`)).catch(() => toast("Could not remove that player."));
+});
+$("vote-list").addEventListener("click", e => {
+  const b = e.target.closest(".vote-person");
+  if (!b || b.disabled || state.room?.votes?.[state.user.uid]) return;
+  state.selectedVote = b.dataset.uid; renderVote();
+});
+
+$("brand-crew").innerHTML = crew(COLORS[0]);
+$("hero-crew").innerHTML = [1, 2, 0, 3, 4].map(i => crew(COLORS[i])).join("");
+
+signInAnonymously(auth).catch(e => { console.error(e); toast("Firebase sign-in failed. Check setup instructions."); });
+onAuthStateChanged(auth, async user => {
+  state.user = user;
+  const c = saved();
+  if (!user || !c || state.roomCode) return;
+  try {
+    const snap = await get(ref(db, `rooms/${c}`));
+    if (snap.exists() && snap.val().players?.[user.uid]) { state.roomCode = c; listenRoom(); } else save(null);
+  } catch {}
+});

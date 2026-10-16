@@ -3,102 +3,105 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0b0b0e">
-  <title>REDLINE — Mafia Party</title>
+  <meta name="theme-color" content="#12122b">
+  <meta name="description" content="SussyRivals is a free live party game. One of you is the impostor. Find them before they fool the whole crew.">
+  <meta property="og:title" content="SussyRivals">
+  <meta property="og:description" content="One of you is the impostor. Find them before they fool the crew.">
+  <title>SussyRivals</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🚀%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="grain"></div>
   <header class="topbar">
-    <a class="brand" href="#" aria-label="Redline home"><span class="brand-mark">R</span><span>REDLINE<span class="brand-dot">.</span></span></a>
-    <div class="top-meta"><span class="live-dot"></span> PRIVATE PARTY GAME</div>
+    <a class="brand" href="./" aria-label="SussyRivals home"><span id="brand-crew"></span>SussyRivals</a>
+    <button class="btn-link hidden" id="leave-top">Leave room</button>
   </header>
   <main id="app">
     <section class="hero screen" id="home-screen">
-      <div class="eyebrow"><span class="eyebrow-line"></span> TRUST NO ONE <span class="eyebrow-line"></span></div>
-      <h1>One of you<br>is <em>the Mafia.</em></h1>
-      <p class="hero-copy">A little suspicion goes a long way. Gather your people, find the liar, and vote before they fool you all.</p>
+      <div class="hero-crew" id="hero-crew" aria-hidden="true"></div>
+      <h1>Someone on this ship is sus.</h1>
+      <p class="hero-copy">Gather your crew, talk it out, and vote out the impostor before they fool everyone.</p>
       <div class="home-actions">
-        <button class="btn btn-primary" id="show-create"><span>＋</span> Create a room</button>
-        <button class="btn btn-secondary" id="show-join">Join a room <span>↗</span></button>
+        <button class="btn btn-primary" id="show-create">Create a room</button>
+        <button class="btn btn-secondary" id="show-join">Join a room</button>
       </div>
       <div class="feature-strip">
-        <div><span class="feature-icon">◈</span><b>2–6 players</b><small>Friends anywhere</small></div>
-        <div><span class="feature-icon">◎</span><b>One hidden Mafia</b><small>Simple rules</small></div>
-        <div><span class="feature-icon">⌁</span><b>Live voting</b><small>Instant results</small></div>
+        <div><b>1–6 players</b><small>Play with friends anywhere</small></div>
+        <div><b>One hidden impostor</b><small>Simple rules</small></div>
+        <div><b>Live voting</b><small>Instant results</small></div>
       </div>
-      <div class="hero-stamp">CASE FILE <strong>001</strong><span> / CLASSIFIED</span></div>
     </section>
 
     <section class="panel-screen screen hidden" id="entry-screen">
       <button class="back-link" id="back-home">← Back</button>
-      <div class="section-kicker">GET IN THE GAME</div>
       <h2 id="entry-title">Create your room</h2>
-      <p class="muted" id="entry-subtitle">Set a nickname and open your private lobby.</p>
+      <p class="muted" id="entry-subtitle">Pick a nickname and open your lobby.</p>
       <form id="entry-form" class="entry-card">
-        <label for="nickname">YOUR NICKNAME</label>
-        <input id="nickname" maxlength="18" placeholder="e.g. NightOwl" autocomplete="nickname" required>
+        <label for="nickname">Your nickname</label>
+        <input id="nickname" maxlength="18" placeholder="e.g. NightOwl" autocomplete="nickname">
         <div id="room-code-wrap" class="hidden">
-          <label for="room-code">ROOM CODE</label>
-          <input id="room-code" maxlength="6" placeholder="ABC123" autocapitalize="characters">
+          <label for="room-code">Room code</label>
+          <input id="room-code" maxlength="6" placeholder="ABC123" autocapitalize="characters" autocomplete="off">
         </div>
-        <button class="btn btn-primary full" id="entry-submit" type="submit">Create room <span>→</span></button>
-        <p class="tiny-note">Keep it friendly. Trust is temporary.</p>
+        <button class="btn btn-primary full" id="entry-submit" type="submit">Create room</button>
+        <p id="entry-error" class="error-text" role="alert"></p>
       </form>
-      <p id="entry-error" class="error-text"></p>
     </section>
 
     <section class="lobby-screen screen hidden" id="lobby-screen">
       <div class="lobby-heading">
-        <div><div class="section-kicker">THE SAFEHOUSE</div><h2>Waiting room</h2><p class="muted">Everyone in? The host starts the round.</p></div>
-        <div class="room-code-card"><small>ROOM CODE</small><button id="copy-code" title="Copy room code"><strong id="room-code-display">------</strong><span>▣</span></button></div>
+        <div><h2>Lobby</h2><p class="muted">Share the code. The host starts the round.</p></div>
+        <div class="room-code-card"><small>Room code</small><button id="copy-code" title="Copy room code"><strong id="room-code-display">------</strong><span>Copy</span></button></div>
       </div>
       <div class="lobby-layout">
         <div class="card players-card">
-          <div class="card-head"><span>PLAYERS IN THE ROOM</span><span id="player-count" class="count-pill">0 / 12</span></div>
+          <div class="card-head"><span>Crew</span><span id="player-count" class="count-pill">0 / 6</span></div>
           <div id="player-list" class="player-list"></div>
-          <div class="lobby-footer"><span class="live-dot"></span><span id="lobby-status">Waiting for players…</span></div>
+          <div class="lobby-footer" id="lobby-status">Waiting for players…</div>
         </div>
         <aside class="card rules-card">
-          <div class="section-kicker">THE RULES</div>
-          <h3>Simple. Suspicious.</h3>
-          <ul><li><span>01</span> One random player is Mafia.</li><li><span>02</span> Everyone else is a Villager.</li><li><span>03</span> Discuss, then vote for one person.</li><li><span>04</span> Most votes wins. Ties stay ties.</li></ul>
-          <div class="rule-warning">No night phase. No extra roles. Just your instincts.</div>
+          <h3>How it works</h3>
+          <ol><li>One random player is the impostor.</li><li>Everyone else is a crewmate.</li><li>Talk it out, then vote for one person.</li><li>Most votes wins. Ties stay ties.</li></ol>
         </aside>
       </div>
-      <div class="lobby-actions"><button class="btn btn-secondary" id="leave-room">Leave room</button><button class="btn btn-primary" id="start-game">Start game <span>→</span></button></div>
-      <p id="lobby-error" class="error-text"></p>
+      <div class="lobby-actions">
+        <button class="btn btn-secondary hidden" id="add-bot">Add test player</button>
+        <button class="btn btn-primary" id="start-game">Start game</button>
+      </div>
+      <p id="lobby-error" class="error-text" role="alert"></p>
     </section>
 
     <section class="role-screen screen hidden" id="role-screen">
-      <div class="section-kicker">YOUR SECRET FILE</div>
-      <h2>Your identity is…</h2>
+      <h2>Your secret role</h2>
       <p class="muted">Keep your screen private. Don’t let anyone peek.</p>
       <div class="role-card" id="role-card">
-        <div class="role-seal">CLASSIFIED</div><div class="role-symbol" id="role-symbol">?</div>
-        <div class="role-name" id="role-name">UNKNOWN</div><p id="role-description">Your role is private.</p>
-        <button class="btn btn-secondary full" id="hide-role">Hide my role</button>
+        <div class="role-symbol" id="role-symbol">?</div>
+        <div class="role-name" id="role-name">Loading…</div>
+        <p id="role-description">Your role is private.</p>
       </div>
-      <button class="btn btn-primary role-continue" id="go-vote">Continue to voting <span>→</span></button>
-      <p class="tiny-note">Your role is only displayed on this screen for your player.</p>
+      <button class="btn btn-secondary full" id="hide-role">Hide my role</button>
+      <button class="btn btn-primary full role-continue hidden" id="go-vote">Start voting</button>
+      <p class="tiny-note hidden" id="role-wait">Waiting for the host to start voting.</p>
     </section>
 
     <section class="vote-screen screen hidden" id="vote-screen">
-      <div class="vote-top"><div><div class="section-kicker">ROUND 01 · THE ACCUSATION</div><h2>Who is the Mafia?</h2><p class="muted">Choose one person. You cannot change your vote.</p></div><div class="vote-progress"><strong id="votes-cast">0</strong><span> / <span id="votes-total">0</span> voted</span></div></div>
+      <div class="vote-top"><div><div class="kicker" id="vote-round">Round 1</div><h2>Who is the impostor?</h2><p class="muted">Pick one person. Votes are final.</p></div><div class="vote-progress"><strong id="votes-cast">0</strong> / <span id="votes-total">0</span> voted</div></div>
       <div id="vote-list" class="vote-grid"></div>
-      <div class="vote-bottom"><span id="vote-status" class="muted">Waiting for votes…</span><button class="btn btn-primary" id="submit-vote" disabled>Lock in vote <span>→</span></button></div>
-      <p id="vote-error" class="error-text"></p>
+      <div class="vote-bottom"><span id="vote-status" class="muted">Waiting for votes…</span><div class="vote-btns"><button class="btn btn-secondary hidden" id="end-round">End round now</button><button class="btn btn-primary" id="submit-vote" disabled>Lock in vote</button></div></div>
+      <p id="vote-error" class="error-text" role="alert"></p>
     </section>
 
     <section class="results-screen screen hidden" id="results-screen">
-      <div class="section-kicker">THE VERDICT</div><h2 id="results-title">The room has spoken.</h2><p class="muted" id="results-subtitle">The votes are in.</p>
-      <div class="results-card"><div class="results-emblem">✦</div><div id="results-outcome" class="results-outcome">TIE</div><div id="results-detail" class="results-detail"></div><div class="results-divider"></div><div class="mafia-reveal"><span>THE MAFIA WAS</span><strong id="mafia-name">—</strong></div></div>
-      <div class="results-actions"><button class="btn btn-secondary" id="back-lobby">Back to lobby</button><button class="btn btn-primary" id="new-round">Play another round <span>↻</span></button></div>
+      <h2 id="results-title">The crew has spoken.</h2><p class="muted" id="results-subtitle">The votes are in.</p>
+      <div class="results-card"><div id="results-outcome" class="results-outcome">Tie</div><div id="results-detail" class="results-detail"></div><div class="results-divider"></div><div class="mafia-reveal"><span>The impostor was</span><strong id="mafia-name">—</strong></div></div>
+      <p class="tiny-note hidden" id="results-wait">Waiting for the host to start another round.</p>
+      <div class="results-actions"><button class="btn btn-primary hidden" id="new-round">Play another round</button></div>
     </section>
   </main>
-  <footer><span>REDLINE © 2026</span><span>THE TRUTH IS IN THE VOTES</span></footer>
+  <footer><span>SussyRivals © 2026</span><span>Trust no one.</span></footer>
   <div id="toast" class="toast" role="status"></div>
   <script type="module" src="app.js"></script>
 </body>
